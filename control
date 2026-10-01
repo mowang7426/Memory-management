@@ -1,9 +1,9 @@
 Package: com.mowang.memorymanagement
 Name: Memory Management
-Version: 0.1.0
+Version: 0.2.0
 Architecture: iphoneos-arm64
 Description: RootHide background autostart management prototype.
 Maintainer: MoWang
 Author: MoWang
 Section: Tweaks
-Depends: preferenceloader
+Depends: mobilesubstrate, preferenceloader

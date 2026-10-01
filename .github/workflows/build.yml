@@ -58,23 +58,26 @@ jobs:
           mkdir -p build
           deb=$(find packages -maxdepth 1 -type f -name '*.deb' | head -n 1)
           test -n "$deb"
-          cp "$deb" "build/MemoryManagement-0.1.0-roothide-${{ matrix.arch }}.deb"
+          cp "$deb" "build/MemoryManagement-0.2.0-roothide-${{ matrix.arch }}.deb"
 
       - name: Verify package contents and architecture
         run: |
           set -e
-          deb="build/MemoryManagement-0.1.0-roothide-${{ matrix.arch }}.deb"
+          deb="build/MemoryManagement-0.2.0-roothide-${{ matrix.arch }}.deb"
           dpkg-deb --info "$deb"
-          dpkg-deb --contents "$deb" | grep -E 'PreferenceBundles/MemoryManagementPrefs\.bundle|PreferenceLoader/Preferences/MemoryManagementPrefs\.plist'
+          dpkg-deb --contents "$deb" | grep -E 'PreferenceBundles/MemoryManagementPrefs\.bundle|PreferenceLoader/Preferences/MemoryManagementPrefs\.plist|DynamicLibraries/MemoryManagement\.(dylib|plist)'
           rm -rf /tmp/mm-deb && mkdir /tmp/mm-deb
           dpkg-deb -x "$deb" /tmp/mm-deb
           bin=$(find /tmp/mm-deb -type f -path '*MemoryManagementPrefs.bundle/MemoryManagementPrefs' | head -n 1)
           test -n "$bin"
           lipo -archs "$bin" | grep -qw '${{ matrix.arch }}'
+          tweak=$(find /tmp/mm-deb -type f -path '*DynamicLibraries/MemoryManagement.dylib' | head -n 1)
+          test -n "$tweak"
+          lipo -archs "$tweak" | grep -qw '${{ matrix.arch }}'
 
       - name: Upload package
         uses: actions/upload-artifact@v4
         with:
-          name: MemoryManagement-0.1.0-roothide-${{ matrix.arch }}
-          path: build/MemoryManagement-0.1.0-roothide-${{ matrix.arch }}.deb
+          name: MemoryManagement-0.2.0-roothide-${{ matrix.arch }}
+          path: build/MemoryManagement-0.2.0-roothide-${{ matrix.arch }}.deb
           if-no-files-found: error

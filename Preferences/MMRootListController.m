@@ -11,8 +11,13 @@
         NSMutableArray *items = [NSMutableArray array];
         PSSpecifier *intro = [PSSpecifier preferenceSpecifierNamed:@"第一版开发中"
             target:nil set:nil get:nil detail:nil cell:PSGroupCell edit:nil];
-        [intro setProperty:@"当前版本仅安装设置入口和安全框架；尚未启用任何后台启动拦截。" forKey:@"footerText"];
+        [intro setProperty:@"当前版本为 iOS 17.0 只读运行时探针：只枚举候选类的方法签名并写入诊断文件；不 Hook 方法、不修改启动请求、不拦截 App。" forKey:@"footerText"];
         [items addObject:intro];
+
+        PSSpecifier *path = [PSSpecifier preferenceSpecifierNamed:@"诊断文件"
+            target:nil set:nil get:nil detail:nil cell:PSGroupCell edit:nil];
+        [path setProperty:@"SpringBoard 加载插件后生成：/var/mobile/Library/Logs/MemoryManagement/RuntimeProbe.txt。文件仅含系统版本、进程名、候选类方法名与 Objective-C 类型编码。" forKey:@"footerText"];
+        [items addObject:path];
 
         PSSpecifier *scope = [PSSpecifier preferenceSpecifierNamed:@"设计目标"
             target:nil set:nil get:nil detail:nil cell:PSGroupCell edit:nil];
