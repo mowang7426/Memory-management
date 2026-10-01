@@ -1,60 +1,62 @@
 #import <Foundation/Foundation.h>
+#import <CoreFoundation/CoreFoundation.h>
 #import <objc/runtime.h>
 #import <dispatch/dispatch.h>
 
-static NSString *const MMProbePath = @"/var/mobile/Library/Logs/MemoryManagement/RuntimeProbe.txt";
+static CFStringRef const MMDomain = CFSTR("com.mowang.memorymanagement");
+static CFStringRef const MMProbeKey = CFSTR("runtimeProbeSummary");
+static CFStringRef const MMStatusKey = CFSTR("runtimeProbeStatus");
 
-static void MMAppendClassMethods(NSMutableString *out, NSString *className) {
+static BOOL MMSelectorLooksRelevant(NSString *name) {
+    NSString *s = name.lowercaseString;
+    NSArray *terms = @[@"launch", @"openapplication", @"activate", @"workspace", @"icon", @"application"];
+    for (NSString *term in terms) if ([s containsString:term]) return YES;
+    return NO;
+}
+
+static NSString *MMInspectClass(NSString *className) {
     Class cls = objc_getClass(className.UTF8String);
-    if (!cls) {
-        [out appendFormat:@"\n[%@] unavailable\n", className];
-        return;
-    }
-    [out appendFormat:@"\n[%@] class=%p\n", className, cls];
-    unsigned depth = 0;
-    for (Class current = cls; current && current != [NSObject class] && depth < 8; current = class_getSuperclass(current), depth++) {
+    if (!cls) return [NSString stringWithFormat:@"%@：当前进程中不存在", className];
+    NSMutableArray *matches = [NSMutableArray array];
+    for (Class current = cls; current && current != [NSObject class]; current = class_getSuperclass(current)) {
         unsigned count = 0;
         Method *methods = class_copyMethodList(current, &count);
-        [out appendFormat:@"  -- %@ (%u methods) --\n", NSStringFromClass(current), count];
         for (unsigned i = 0; i < count; i++) {
-            SEL sel = method_getName(methods[i]);
+            NSString *selector = NSStringFromSelector(method_getName(methods[i]));
+            if (!MMSelectorLooksRelevant(selector)) continue;
             const char *encoding = method_getTypeEncoding(methods[i]);
-            [out appendFormat:@"  %@ %s\n", NSStringFromSelector(sel), encoding ?: "?"];
+            [matches addObject:[NSString stringWithFormat:@"%@ · %@ · %s", NSStringFromClass(current), selector, encoding ?: "?"]];
         }
         free(methods);
     }
+    if (!matches.count) return [NSString stringWithFormat:@"%@：未发现匹配方法", className];
+    return [NSString stringWithFormat:@"%@（%lu）\n%@", className, (unsigned long)matches.count,
+            [[matches subarrayWithRange:NSMakeRange(0, MIN(matches.count, 80))] componentsJoinedByString:@"\n"]];
 }
 
-static void MMRunRuntimeProbe(void) {
+static void MMRunReadOnlyProbe(void) {
     @autoreleasepool {
-        NSMutableString *report = [NSMutableString stringWithFormat:
-            @"MemoryManagement iOS 17.0 runtime probe\nOS: %@\nProcess: %@\nThis diagnostic is read-only: no methods are hooked and no launch requests are changed.\n",
-            NSProcessInfo.processInfo.operatingSystemVersionString,
-            NSProcessInfo.processInfo.processName];
-        NSArray<NSString *> *names = @[
-            @"SBMainWorkspace", @"SBIconController", @"SBIconManager",
-            @"SBIconView", @"SBWorkspaceTransitionRequest", @"FBSSystemService"
-        ];
-        for (NSString *name in names) MMAppendClassMethods(report, name);
-
-        NSError *error = nil;
-        NSString *directory = [MMProbePath stringByDeletingLastPathComponent];
-        [[NSFileManager defaultManager] createDirectoryAtPath:directory
-                                  withIntermediateDirectories:YES attributes:nil error:&error];
-        if (!error && [report writeToFile:MMProbePath atomically:YES encoding:NSUTF8StringEncoding error:&error]) {
-            NSLog(@"[MemoryManagement] Read-only runtime probe saved: %@", MMProbePath);
-        } else {
-            NSLog(@"[MemoryManagement] Runtime probe write failed: %@", error.localizedDescription ?: @"unknown error");
-        }
+        NSString *process = NSProcessInfo.processInfo.processName ?: @"unknown";
+        NSString *os = NSProcessInfo.processInfo.operatingSystemVersionString ?: @"unknown";
+        NSMutableArray *sections = [NSMutableArray arrayWithObject:[NSString stringWithFormat:@"只读探测 · %@ · %@", process, os]];
+        NSArray *classes = @[@"SBMainWorkspace", @"SBIconController", @"SBIconManager", @"SBIconView", @"SBWorkspaceTransitionRequest", @"FBSSystemService"];
+        for (NSString *name in classes) [sections addObject:MMInspectClass(name)];
+        NSString *summary = [sections componentsJoinedByString:@"\n\n"];
+        CFPreferencesSetAppValue(MMProbeKey, (__bridge CFStringRef)summary, MMDomain);
+        CFPreferencesSetAppValue(MMStatusKey, CFSTR("已运行：只读枚举；没有 Hook 或拦截"), MMDomain);
+        CFPreferencesAppSynchronize(MMDomain);
+        NSLog(@"[MemoryManagement] Read-only runtime inspection finished for %@", process);
     }
 }
 
 %ctor {
     if (![NSBundle.mainBundle.bundleIdentifier isEqualToString:@"com.apple.springboard"]) return;
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
-        @try { MMRunRuntimeProbe(); }
+        @try { MMRunReadOnlyProbe(); }
         @catch (NSException *exception) {
-            NSLog(@"[MemoryManagement] Runtime probe exception: %@", exception.reason ?: @"unknown");
+            CFPreferencesSetAppValue(MMStatusKey, (__bridge CFStringRef)[NSString stringWithFormat:@"探测异常：%@", exception.reason ?: @"unknown"], MMDomain);
+            CFPreferencesAppSynchronize(MMDomain);
+            NSLog(@"[MemoryManagement] Runtime inspection exception: %@", exception.reason ?: @"unknown");
         }
     });
 }

@@ -1,38 +1,53 @@
 #import <Preferences/PSListController.h>
 #import <Preferences/PSSpecifier.h>
 #import <UIKit/UIKit.h>
+#import <CoreFoundation/CoreFoundation.h>
+
+static CFStringRef const MMDomain = CFSTR("com.mowang.memorymanagement");
+static NSString *MMPreferenceString(CFStringRef key, NSString *fallback) {
+    CFPreferencesAppSynchronize(MMDomain);
+    CFPropertyListRef value = CFPreferencesCopyAppValue(key, MMDomain);
+    if (!value) return fallback;
+    id object = CFBridgingRelease(value);
+    return [object isKindOfClass:NSString.class] ? object : fallback;
+}
 
 @interface MMRootListController : PSListController
 @end
 
 @implementation MMRootListController
+- (void)viewWillAppear:(BOOL)animated {
+    [super viewWillAppear:animated];
+    _specifiers = nil;
+    [self reloadSpecifiers];
+}
+
 - (NSArray *)specifiers {
     if (!_specifiers) {
+        NSString *status = MMPreferenceString(CFSTR("runtimeProbeStatus"), @"等待 SpringBoard 探测；如刚安装，请重载 SpringBoard 后返回此页。未显示“已运行”不代表拦截功能可用。 ");
+        NSString *summary = MMPreferenceString(CFSTR("runtimeProbeSummary"), @"尚无运行时结果。该探测不会更改系统行为，也不会阻止任何 App 启动。");
+        if (summary.length > 6500) summary = [[summary substringToIndex:6500] stringByAppendingString:@"\n\n（结果过长，已截断）"];
+
         NSMutableArray *items = [NSMutableArray array];
-        PSSpecifier *intro = [PSSpecifier preferenceSpecifierNamed:@"第一版开发中"
+        PSSpecifier *state = [PSSpecifier preferenceSpecifierNamed:@"iOS 17.0 只读观察状态"
             target:nil set:nil get:nil detail:nil cell:PSGroupCell edit:nil];
-        [intro setProperty:@"当前版本为 iOS 17.0 只读运行时探针：只枚举候选类的方法签名并写入诊断文件；不 Hook 方法、不修改启动请求、不拦截 App。" forKey:@"footerText"];
-        [items addObject:intro];
+        [state setProperty:status forKey:@"footerText"];
+        [items addObject:state];
 
-        PSSpecifier *path = [PSSpecifier preferenceSpecifierNamed:@"诊断文件"
+        PSSpecifier *results = [PSSpecifier preferenceSpecifierNamed:@"候选启动相关方法（设备侧枚举）"
             target:nil set:nil get:nil detail:nil cell:PSGroupCell edit:nil];
-        [path setProperty:@"SpringBoard 加载插件后生成：/var/mobile/Library/Logs/MemoryManagement/RuntimeProbe.txt。文件仅含系统版本、进程名、候选类方法名与 Objective-C 类型编码。" forKey:@"footerText"];
-        [items addObject:path];
+        [results setProperty:summary forKey:@"footerText"];
+        [items addObject:results];
 
-        PSSpecifier *scope = [PSSpecifier preferenceSpecifierNamed:@"设计目标"
+        PSSpecifier *boundary = [PSSpecifier preferenceSpecifierNamed:@"当前能力边界"
             target:nil set:nil get:nil detail:nil cell:PSGroupCell edit:nil];
-        [scope setProperty:@"后续仅管理用户选择的第三方 App。用户主动打开必须放行；无法确认启动来源时默认放行。" forKey:@"footerText"];
-        [items addObject:scope];
+        [boundary setProperty:@"目前只在 SpringBoard 进程中枚举运行时方法名与类型编码，结果直接显示于此页；没有方法 Hook、启动来源判定或拦截逻辑。请不要据此认为后台自启动已被限制。" forKey:@"footerText"];
+        [items addObject:boundary];
 
-        PSSpecifier *safety = [PSSpecifier preferenceSpecifierNamed:@"系统保护"
+        PSSpecifier *safety = [PSSpecifier preferenceSpecifierNamed:@"安全策略"
             target:nil set:nil get:nil detail:nil cell:PSGroupCell edit:nil];
-        [safety setProperty:@"不会限制 SpringBoard、backboardd、kernel_task 或系统关键服务，也不修改 Jetsam 策略。" forKey:@"footerText"];
+        [safety setProperty:@"不修改 SpringBoard 启动流程，不限制系统服务，不改变 Jetsam。后续实现必须对用户主动启动放行；来源未知时 fail-open。" forKey:@"footerText"];
         [items addObject:safety];
-
-        PSSpecifier *note = [PSSpecifier preferenceSpecifierNamed:@"注意"
-            target:nil set:nil get:nil detail:nil cell:PSGroupCell edit:nil];
-        [note setProperty:@"iOS 不提供通用的每 App 自启动开关。拦截能力需按 iOS 版本验证，不能承诺长期保留固定空闲内存。" forKey:@"footerText"];
-        [items addObject:note];
         _specifiers = [items copy];
     }
     return _specifiers;

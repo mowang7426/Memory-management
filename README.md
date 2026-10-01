@@ -2,7 +2,7 @@
 
 RootHide 越狱插件项目，目标是在 iOS 15.0–17.0 上为用户提供按 App 配置的后台自启动管理。
 
-> 当前版本：0.2.0-alpha（iOS 17.0 只读运行时探针）。仅在 SpringBoard 中枚举候选私有类的方法名和 Objective-C 类型编码，输出本地诊断文件；不 Hook 方法、不修改启动请求、不拦截 App。尚未进行设备验证。
+> 当前版本：0.3.0-alpha（iOS 17.0 只读运行时枚举）。只在 SpringBoard 进程读取候选类的方法名和类型编码，并通过共享偏好存储供设置页显示；不写外部日志文件、不 Hook 方法、不修改启动请求、不拦截 App。
 
 ## 安全目标
 
@@ -26,4 +26,4 @@ RootHide 越狱插件项目，目标是在 iOS 15.0–17.0 上为用户提供按
 
 ## 当前进度
 
-用户设备为 iOS 17.0。0.2.0-alpha 增加只读运行时探针，限定注入 SpringBoard，记录候选类的方法 selector 与类型编码到 `/var/mobile/Library/Logs/MemoryManagement/RuntimeProbe.txt`。无方法 Hook；首次仅获取设备侧实际 selector 后，再为 17.0 开发被动观察逻辑。arm64/arm64e 分架构构建；必须由用户真机验证注入与文件权限。
+用户设备为 iOS 17.0。0.3.0-alpha 将只读枚举结果显示在设置页，不要求用户通过 Filza 查找文件。探针仅列出候选私有类上名字匹配 launch/open/activate/workspace/icon/application 的方法及类型编码；不 Hook、不阻断。若 SpringBoard 注入未成功，设置页会显示等待状态。完成双架构构建后仍需设备验证共享偏好读写与 SpringBoard 注入。
