@@ -1,0 +1,80 @@
+name: Build Memory Management (RootHide)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main, master ]
+
+jobs:
+  build:
+    runs-on: macos-14
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [ arm64, arm64e ]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: brew install make dpkg ldid xz
+
+      - name: Install RootHide Theos
+        run: |
+          set -e
+          rm -rf "$HOME/theos"
+          git clone --recursive https://github.com/roothide/theos.git "$HOME/theos"
+
+      - name: Install iPhoneOS 16.5 SDK
+        run: |
+          set -e
+          rm -rf /tmp/theos-sdks
+          mkdir -p "$HOME/theos/sdks"
+          git clone --depth=1 --filter=blob:none --sparse https://github.com/theos/sdks.git /tmp/theos-sdks
+          cd /tmp/theos-sdks
+          git sparse-checkout set iPhoneOS16.5.sdk
+          cp -R iPhoneOS16.5.sdk "$HOME/theos/sdks/"
+
+      - name: Set Theos environment
+        run: |
+          echo "THEOS=$HOME/theos" >> "$GITHUB_ENV"
+          echo "THEOS_MAKE_PATH=$HOME/theos/makefiles" >> "$GITHUB_ENV"
+          echo "$HOME/theos/bin" >> "$GITHUB_PATH"
+
+      - name: Verify build environment and metadata
+        run: |
+          set -e
+          test -f "$HOME/theos/makefiles/common.mk"
+          test -f "$HOME/theos/makefiles/bundle.mk"
+          grep -E '^(Package|Name|Version|Depends):' control
+
+      - name: Build RootHide package for ${{ matrix.arch }}
+        run: |
+          set -e
+          make clean || true
+          rm -rf packages
+          THEOS_PACKAGE_SCHEME=roothide make package ARCHS=${{ matrix.arch }} FINALPACKAGE=1
+          mkdir -p build
+          deb=$(find packages -maxdepth 1 -type f -name '*.deb' | head -n 1)
+          test -n "$deb"
+          cp "$deb" "build/MemoryManagement-0.1.0-roothide-${{ matrix.arch }}.deb"
+
+      - name: Verify package contents and architecture
+        run: |
+          set -e
+          deb="build/MemoryManagement-0.1.0-roothide-${{ matrix.arch }}.deb"
+          dpkg-deb --info "$deb"
+          dpkg-deb --contents "$deb" | grep -E 'PreferenceBundles/MemoryManagementPrefs\.bundle|PreferenceLoader/Preferences/MemoryManagementPrefs\.plist'
+          rm -rf /tmp/mm-deb && mkdir /tmp/mm-deb
+          dpkg-deb -x "$deb" /tmp/mm-deb
+          bin=$(find /tmp/mm-deb -type f -path '*MemoryManagementPrefs.bundle/MemoryManagementPrefs' | head -n 1)
+          test -n "$bin"
+          lipo -archs "$bin" | grep -qw '${{ matrix.arch }}'
+
+      - name: Upload package
+        uses: actions/upload-artifact@v4
+        with:
+          name: MemoryManagement-0.1.0-roothide-${{ matrix.arch }}
+          path: build/MemoryManagement-0.1.0-roothide-${{ matrix.arch }}.deb
+          if-no-files-found: error
