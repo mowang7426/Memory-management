@@ -18,7 +18,7 @@ static void MMWrite(CFStringRef key, id value) {
     CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(), MMChanged, NULL, NULL, true);
 }
 
-@interface MMAppsController : UITableViewController
+@interface MMAppsController : PSListController
 @property(nonatomic,strong) NSArray<NSDictionary *> *apps;
 @property(nonatomic,strong) NSMutableSet<NSString *> *selected;
 @end
@@ -81,7 +81,7 @@ static void MMWrite(CFStringRef key, id value) {
 }
 @end
 
-@interface MMLogController : UITableViewController
+@interface MMLogController : PSListController
 @property(nonatomic,strong) NSArray<NSDictionary *> *events;
 @property(nonatomic,strong) NSDateFormatter *formatter;
 @end

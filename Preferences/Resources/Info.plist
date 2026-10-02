@@ -7,8 +7,8 @@
   <key>CFBundlePackageType</key><string>BNDL</string>
   <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
   <key>CFBundleExecutable</key><string>MemoryManagementPrefs</string>
-  <key>CFBundleVersion</key><string>1.1.0</string>
-  <key>CFBundleShortVersionString</key><string>1.1.0</string>
+  <key>CFBundleVersion</key><string>1.1.1</string>
+  <key>CFBundleShortVersionString</key><string>1.1.1</string>
   <key>NSPrincipalClass</key><string>MMRootListController</string>
 </dict>
 </plist>
