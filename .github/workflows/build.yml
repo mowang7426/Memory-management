@@ -58,12 +58,12 @@ jobs:
           mkdir -p build
           deb=$(find packages -maxdepth 1 -type f -name '*.deb' | head -n 1)
           test -n "$deb"
-          cp "$deb" "build/MemoryManagement-0.3.1-roothide-${{ matrix.arch }}.deb"
+          cp "$deb" "build/MemoryManagement-1.0.0-roothide-${{ matrix.arch }}.deb"
 
       - name: Verify package contents and architecture
         run: |
           set -e
-          deb="build/MemoryManagement-0.3.1-roothide-${{ matrix.arch }}.deb"
+          deb="build/MemoryManagement-1.0.0-roothide-${{ matrix.arch }}.deb"
           dpkg-deb --info "$deb"
           dpkg-deb --contents "$deb" | grep -E 'PreferenceBundles/MemoryManagementPrefs\.bundle|PreferenceLoader/Preferences/MemoryManagementPrefs\.plist|DynamicLibraries/MemoryManagement\.(dylib|plist)|MemoryManagement\.plist'
           rm -rf /tmp/mm-deb && mkdir /tmp/mm-deb
@@ -78,6 +78,6 @@ jobs:
       - name: Upload package
         uses: actions/upload-artifact@v4
         with:
-          name: MemoryManagement-0.3.1-roothide-${{ matrix.arch }}
-          path: build/MemoryManagement-0.3.1-roothide-${{ matrix.arch }}.deb
+          name: MemoryManagement-1.0.0-roothide-${{ matrix.arch }}
+          path: build/MemoryManagement-1.0.0-roothide-${{ matrix.arch }}.deb
           if-no-files-found: error

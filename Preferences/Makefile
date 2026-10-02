@@ -6,7 +6,7 @@ include $(THEOS)/makefiles/common.mk
 BUNDLE_NAME = MemoryManagementPrefs
 MemoryManagementPrefs_FILES = MMRootListController.m
 MemoryManagementPrefs_FRAMEWORKS = UIKit CoreFoundation
-MemoryManagementPrefs_PRIVATE_FRAMEWORKS = Preferences
+MemoryManagementPrefs_PRIVATE_FRAMEWORKS = Preferences MobileCoreServices
 MemoryManagementPrefs_INSTALL_PATH = /Library/PreferenceBundles
 MemoryManagementPrefs_CFLAGS = -fobjc-arc
 MemoryManagementPrefs_EXTRA_FRAMEWORKS =

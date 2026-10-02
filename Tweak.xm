@@ -1,62 +1,83 @@
 #import <Foundation/Foundation.h>
+#import <UIKit/UIKit.h>
 #import <CoreFoundation/CoreFoundation.h>
-#import <objc/runtime.h>
-#import <dispatch/dispatch.h>
+#import <stdatomic.h>
+#import <unistd.h>
 
 static CFStringRef const MMDomain = CFSTR("com.mowang.memorymanagement");
-static CFStringRef const MMProbeKey = CFSTR("runtimeProbeSummary");
-static CFStringRef const MMStatusKey = CFSTR("runtimeProbeStatus");
+static _Atomic(bool) MMHasBeenActive = false;
+static _Atomic(bool) MMTerminationScheduled = false;
 
-static BOOL MMSelectorLooksRelevant(NSString *name) {
-    NSString *s = name.lowercaseString;
-    NSArray *terms = @[@"launch", @"openapplication", @"activate", @"workspace", @"icon", @"application"];
-    for (NSString *term in terms) if ([s containsString:term]) return YES;
-    return NO;
+static id MMPreference(CFStringRef key) {
+    CFPreferencesAppSynchronize(MMDomain);
+    CFPropertyListRef value = CFPreferencesCopyAppValue(key, MMDomain);
+    return value ? CFBridgingRelease(value) : nil;
 }
 
-static NSString *MMInspectClass(NSString *className) {
-    Class cls = objc_getClass(className.UTF8String);
-    if (!cls) return [NSString stringWithFormat:@"%@：当前进程中不存在", className];
-    NSMutableArray *matches = [NSMutableArray array];
-    for (Class current = cls; current && current != [NSObject class]; current = class_getSuperclass(current)) {
-        unsigned count = 0;
-        Method *methods = class_copyMethodList(current, &count);
-        for (unsigned i = 0; i < count; i++) {
-            NSString *selector = NSStringFromSelector(method_getName(methods[i]));
-            if (!MMSelectorLooksRelevant(selector)) continue;
-            const char *encoding = method_getTypeEncoding(methods[i]);
-            [matches addObject:[NSString stringWithFormat:@"%@ · %@ · %s", NSStringFromClass(current), selector, encoding ?: "?"]];
-        }
-        free(methods);
-    }
-    if (!matches.count) return [NSString stringWithFormat:@"%@：未发现匹配方法", className];
-    return [NSString stringWithFormat:@"%@（%lu）\n%@", className, (unsigned long)matches.count,
-            [[matches subarrayWithRange:NSMakeRange(0, MIN(matches.count, 80))] componentsJoinedByString:@"\n"]];
+static BOOL MMIsManagedBundle(NSString *bundleID) {
+    if (!bundleID.length || [bundleID hasPrefix:@"com.apple."]) return NO;
+    NSNumber *enabled = MMPreference(CFSTR("enabled"));
+    if (![enabled isKindOfClass:NSNumber.class] || !enabled.boolValue) return NO;
+    NSArray *managed = MMPreference(CFSTR("managedBundles"));
+    return [managed isKindOfClass:NSArray.class] && [managed containsObject:bundleID];
 }
 
-static void MMRunReadOnlyProbe(void) {
-    @autoreleasepool {
-        NSString *process = NSProcessInfo.processInfo.processName ?: @"unknown";
-        NSString *os = NSProcessInfo.processInfo.operatingSystemVersionString ?: @"unknown";
-        NSMutableArray *sections = [NSMutableArray arrayWithObject:[NSString stringWithFormat:@"只读探测 · %@ · %@", process, os]];
-        NSArray *classes = @[@"SBMainWorkspace", @"SBIconController", @"SBIconManager", @"SBIconView", @"SBWorkspaceTransitionRequest", @"FBSSystemService"];
-        for (NSString *name in classes) [sections addObject:MMInspectClass(name)];
-        NSString *summary = [sections componentsJoinedByString:@"\n\n"];
-        CFPreferencesSetAppValue(MMProbeKey, (__bridge CFStringRef)summary, MMDomain);
-        CFPreferencesSetAppValue(MMStatusKey, CFSTR("已运行：只读枚举；没有 Hook 或拦截"), MMDomain);
-        CFPreferencesAppSynchronize(MMDomain);
-        NSLog(@"[MemoryManagement] Read-only runtime inspection finished for %@", process);
-    }
+static void MMRecordEvent(NSString *bundleID, NSString *result) {
+    if (!bundleID.length || !result.length) return;
+    NSDictionary *event = @{ @"bundle": bundleID,
+                             @"result": result,
+                             @"time": @([[NSDate date] timeIntervalSince1970]) };
+    CFPreferencesSetAppValue(CFSTR("lastEvent"), (__bridge CFDictionaryRef)event, MMDomain);
+    CFPreferencesAppSynchronize(MMDomain);
+}
+
+static void MMCancelTermination(void) {
+    atomic_store(&MMHasBeenActive, true);
+    atomic_store(&MMTerminationScheduled, false);
+}
+
+static void MMScheduleBackgroundLaunchCheck(void) {
+    NSString *bundleID = NSBundle.mainBundle.bundleIdentifier;
+    if (!MMIsManagedBundle(bundleID) || atomic_load(&MMHasBeenActive)) return;
+    bool expected = false;
+    if (!atomic_compare_exchange_strong(&MMTerminationScheduled, &expected, true)) return;
+
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 5 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
+        atomic_store(&MMTerminationScheduled, false);
+        if (atomic_load(&MMHasBeenActive)) return;
+        UIApplication *application = UIApplication.sharedApplication;
+        if (application.applicationState != UIApplicationStateBackground) return;
+        if (!MMIsManagedBundle(bundleID)) return;
+        MMRecordEvent(bundleID, @"已阻止后台冷启动");
+        NSLog(@"[MemoryManagement] terminating selected background-only launch: %@", bundleID);
+        _exit(0);
+    });
 }
 
 %ctor {
-    if (![NSBundle.mainBundle.bundleIdentifier isEqualToString:@"com.apple.springboard"]) return;
-    dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
-        @try { MMRunReadOnlyProbe(); }
-        @catch (NSException *exception) {
-            CFPreferencesSetAppValue(MMStatusKey, (__bridge CFStringRef)[NSString stringWithFormat:@"探测异常：%@", exception.reason ?: @"unknown"], MMDomain);
-            CFPreferencesAppSynchronize(MMDomain);
-            NSLog(@"[MemoryManagement] Runtime inspection exception: %@", exception.reason ?: @"unknown");
-        }
-    });
+    @autoreleasepool {
+        NSString *bundleID = NSBundle.mainBundle.bundleIdentifier;
+        if (!bundleID.length || [bundleID hasPrefix:@"com.apple."] ||
+            [bundleID isEqualToString:@"com.apple.springboard"] ||
+            !NSClassFromString(@"UIApplication")) return;
+
+        NSNotificationCenter *center = NSNotificationCenter.defaultCenter;
+        [center addObserverForName:UIApplicationDidBecomeActiveNotification object:nil queue:NSOperationQueue.mainQueue usingBlock:^(__unused NSNotification *note) {
+            MMCancelTermination();
+            if (MMIsManagedBundle(bundleID)) MMRecordEvent(bundleID, @"用户前台启动，已放行");
+        }];
+        [center addObserverForName:UIApplicationDidEnterBackgroundNotification object:nil queue:NSOperationQueue.mainQueue usingBlock:^(__unused NSNotification *note) {
+            MMScheduleBackgroundLaunchCheck();
+        }];
+        [center addObserverForName:UIApplicationDidFinishLaunchingNotification object:nil queue:NSOperationQueue.mainQueue usingBlock:^(__unused NSNotification *note) {
+            UIApplication *application = UIApplication.sharedApplication;
+            if (application.applicationState == UIApplicationStateActive) MMCancelTermination();
+            else MMScheduleBackgroundLaunchCheck();
+        }];
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 2 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
+            UIApplication *application = UIApplication.sharedApplication;
+            if (application.applicationState == UIApplicationStateActive) MMCancelTermination();
+            else MMScheduleBackgroundLaunchCheck();
+        });
+    }
 }
