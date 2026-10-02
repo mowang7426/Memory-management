@@ -27,7 +27,16 @@ static void MMRecordEvent(NSString *bundleID, NSString *result) {
     NSDictionary *event = @{ @"bundle": bundleID,
                              @"result": result,
                              @"time": @([[NSDate date] timeIntervalSince1970]) };
+    CFPreferencesAppSynchronize(MMDomain);
+    CFPropertyListRef existingValue = CFPreferencesCopyAppValue(CFSTR("eventLog"), MMDomain);
+    NSArray *existing = existingValue ? CFBridgingRelease(existingValue) : nil;
+    NSMutableArray *events = [NSMutableArray arrayWithObject:event];
+    if ([existing isKindOfClass:NSArray.class]) {
+        NSUInteger keep = MIN(existing.count, 99);
+        if (keep) [events addObjectsFromArray:[existing subarrayWithRange:NSMakeRange(0, keep)]];
+    }
     CFPreferencesSetAppValue(CFSTR("lastEvent"), (__bridge CFDictionaryRef)event, MMDomain);
+    CFPreferencesSetAppValue(CFSTR("eventLog"), (__bridge CFArrayRef)events, MMDomain);
     CFPreferencesAppSynchronize(MMDomain);
 }
 

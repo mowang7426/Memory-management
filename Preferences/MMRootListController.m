@@ -81,6 +81,55 @@ static void MMWrite(CFStringRef key, id value) {
 }
 @end
 
+@interface MMLogController : UITableViewController
+@property(nonatomic,strong) NSArray<NSDictionary *> *events;
+@property(nonatomic,strong) NSDateFormatter *formatter;
+@end
+
+@implementation MMLogController
+- (void)viewDidLoad {
+    [super viewDidLoad];
+    self.title = @"后台自启处理日志";
+    self.formatter = [[NSDateFormatter alloc] init];
+    self.formatter.dateFormat = @"MM-dd HH:mm:ss";
+    self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithTitle:@"清空" style:UIBarButtonItemStylePlain target:self action:@selector(clearLog)];
+    [self reloadEvents];
+}
+- (void)viewWillAppear:(BOOL)animated { [super viewWillAppear:animated]; [self reloadEvents]; }
+- (void)reloadEvents {
+    NSArray *stored = MMRead(CFSTR("eventLog"));
+    self.events = [stored isKindOfClass:NSArray.class] ? stored : @[];
+    [self.tableView reloadData];
+}
+- (void)clearLog {
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"清空日志" message:@"确定删除全部后台自启处理记录吗？" preferredStyle:UIAlertControllerStyleAlert];
+    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    __weak typeof(self) weakSelf = self;
+    [alert addAction:[UIAlertAction actionWithTitle:@"清空" style:UIAlertActionStyleDestructive handler:^(__unused UIAlertAction *action) {
+        MMWrite(CFSTR("eventLog"), @[]);
+        MMWrite(CFSTR("lastEvent"), nil);
+        [weakSelf reloadEvents];
+    }]];
+    [self presentViewController:alert animated:YES completion:nil];
+}
+- (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section { return self.events.count; }
+- (NSString *)tableView:(UITableView *)tableView titleForFooterInSection:(NSInteger)section {
+    return self.events.count ? @"最多保存最近 100 条。仅记录时间、Bundle ID 和处理结果，不记录通知内容或 App 数据。" : @"暂无日志。启用功能并选择 App 后，放行和阻止结果会显示在这里。";
+}
+- (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
+    static NSString *identifier = @"MMLog";
+    UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:identifier];
+    if (!cell) cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:identifier];
+    NSDictionary *event = self.events[indexPath.row];
+    cell.textLabel.text = [event[@"result"] isKindOfClass:NSString.class] ? event[@"result"] : @"未知结果";
+    NSDate *date = [NSDate dateWithTimeIntervalSince1970:[event[@"time"] doubleValue]];
+    cell.detailTextLabel.text = [NSString stringWithFormat:@"%@  %@", [self.formatter stringFromDate:date], event[@"bundle"] ?: @"?"];
+    cell.textLabel.textColor = [cell.textLabel.text containsString:@"阻止"] ? UIColor.systemRedColor : UIColor.labelColor;
+    cell.selectionStyle = UITableViewCellSelectionStyleNone;
+    return cell;
+}
+@end
+
 @interface MMRootListController : PSListController
 @end
 @implementation MMRootListController
@@ -102,6 +151,10 @@ static void MMWrite(CFStringRef key, id value) {
         PSSpecifier *apps = [PSSpecifier preferenceSpecifierNamed:@"选择第三方 App" target:self set:nil get:nil
             detail:MMAppsController.class cell:PSLinkCell edit:nil];
         [items addObject:apps];
+
+        PSSpecifier *logs = [PSSpecifier preferenceSpecifierNamed:@"拦截后台自启日志" target:self set:nil get:nil
+            detail:MMLogController.class cell:PSLinkCell edit:nil];
+        [items addObject:logs];
 
         NSDictionary *event = MMRead(CFSTR("lastEvent"));
         NSString *eventText = @"暂无事件。";
