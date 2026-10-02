@@ -1,4 +1,5 @@
 #import <Preferences/PSListController.h>
+#import "MMValidatedData.h"
 #import <Preferences/PSSpecifier.h>
 #import <UIKit/UIKit.h>
 #import <CoreFoundation/CoreFoundation.h>
@@ -18,17 +19,23 @@ static void MMWrite(CFStringRef key, id value) {
     CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(), MMChanged, NULL, NULL, true);
 }
 
-@interface MMAppsController : PSListController
+@interface MMAppsController : UITableViewController
 @property(nonatomic,strong) NSArray<NSDictionary *> *apps;
 @property(nonatomic,strong) NSMutableSet<NSString *> *selected;
 @end
 
 @implementation MMAppsController
+- (instancetype)initWithSpecifier:(PSSpecifier *)specifier {
+    self = [super initWithStyle:UITableViewStylePlain];
+    if (self) { (void)specifier; }
+    return self;
+}
+- (void)setSpecifier:(PSSpecifier *)specifier { (void)specifier; }
 - (void)viewDidLoad {
     [super viewDidLoad];
     self.title = @"选择要限制的 App";
     NSArray *stored = MMRead(CFSTR("managedBundles"));
-    self.selected = [NSMutableSet setWithArray:[stored isKindOfClass:NSArray.class] ? stored : @[]];
+    self.selected = [NSMutableSet setWithArray:MMValidBundles(stored)];
     [self loadApplications];
 }
 - (void)loadApplications {
@@ -36,10 +43,15 @@ static void MMWrite(CFStringRef key, id value) {
     Class workspaceClass = NSClassFromString(@"LSApplicationWorkspace");
     SEL defaultSelector = NSSelectorFromString(@"defaultWorkspace");
     SEL allSelector = NSSelectorFromString(@"allApplications");
-    id workspace = workspaceClass && [workspaceClass respondsToSelector:defaultSelector]
-        ? ((id(*)(id,SEL))objc_msgSend)(workspaceClass, defaultSelector) : nil;
-    NSArray *proxies = workspace && [workspace respondsToSelector:allSelector]
-        ? ((id(*)(id,SEL))objc_msgSend)(workspace, allSelector) : @[];
+    id workspace = nil;
+    id proxies = nil;
+    @try {
+        if (workspaceClass && [workspaceClass respondsToSelector:defaultSelector])
+            workspace = ((id(*)(id,SEL))objc_msgSend)(workspaceClass, defaultSelector);
+        if (workspace && [workspace respondsToSelector:allSelector])
+            proxies = ((id(*)(id,SEL))objc_msgSend)(workspace, allSelector);
+    } @catch (__unused NSException *exception) {}
+    if (![proxies isKindOfClass:NSArray.class]) proxies = @[];
     for (id proxy in proxies) {
         NSString *bundle = nil, *name = nil, *type = nil;
         @try {
@@ -81,12 +93,18 @@ static void MMWrite(CFStringRef key, id value) {
 }
 @end
 
-@interface MMLogController : PSListController
+@interface MMLogController : UITableViewController
 @property(nonatomic,strong) NSArray<NSDictionary *> *events;
 @property(nonatomic,strong) NSDateFormatter *formatter;
 @end
 
 @implementation MMLogController
+- (instancetype)initWithSpecifier:(PSSpecifier *)specifier {
+    self = [super initWithStyle:UITableViewStylePlain];
+    if (self) { (void)specifier; }
+    return self;
+}
+- (void)setSpecifier:(PSSpecifier *)specifier { (void)specifier; }
 - (void)viewDidLoad {
     [super viewDidLoad];
     self.title = @"后台自启处理日志";
@@ -182,4 +200,14 @@ static void MMWrite(CFStringRef key, id value) {
     MMWrite((__bridge CFStringRef)[specifier propertyForKey:@"key"], value);
 }
 - (void)viewWillAppear:(BOOL)animated { [super viewWillAppear:animated]; _specifiers=nil; [self reloadSpecifiers]; }
+@end
+
+// Compatibility methods used by PreferenceLoader when presenting custom detail controllers.
+@interface MMAppsController (PreferenceLoaderCompatibility)
+- (instancetype)initWithSpecifier:(PSSpecifier *)specifier;
+- (void)setSpecifier:(PSSpecifier *)specifier;
+@end
+@interface MMLogController (PreferenceLoaderCompatibility)
+- (instancetype)initWithSpecifier:(PSSpecifier *)specifier;
+- (void)setSpecifier:(PSSpecifier *)specifier;
 @end
